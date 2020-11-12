@@ -12,6 +12,7 @@ setwd("~/Google Drive/UPenn/Coding/R Programs/Personal Research--Penn/Congressio
 output.fun<-function(x) {
   vect<-unlist(fromJSON(x)$content$text)
   x<-length(vect)
+  print(vect)
   vect[(x-1)]
 }
 
