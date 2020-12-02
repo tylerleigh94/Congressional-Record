@@ -1,6 +1,7 @@
 #### Libraries ####
 library(easypackages)
-libs<-c("tidyverse", "ProPublicaR", "peRspective", "stringr")
+libs<-c("tidyverse", "ProPublicaR", "peRspective", "stringr", "tidytext", "lubridate", 
+        "topicmodels", "tm")
 libraries(libs)
 
 #### Functions ####
@@ -32,13 +33,13 @@ toxicity.function <- function(df){
 }
 
 
-dat <- dat[!is.na(dat$speech_id),]
-test <- dat %>%
-  prsp_stream(text=speech,
-              text_id = speech_id,
-              score_model="TOXICITY",
-              safe_output = T,
-              verbose=T)
+#dat <- dat[!is.na(dat$speech_id),]
+#test <- dat %>%
+#  prsp_stream(text=speech,
+#              text_id = speech_id,
+#              score_model="TOXICITY",
+#              safe_output = T,
+#              verbose=T)
 
 #Take a file name, get out the text data, search the matching descriptive file and merge 
 #in metadata; create column of comment length; trim strings to max length; 
@@ -67,6 +68,9 @@ sample.n <- function(file, chamber=NA, n=NA){
   mean.words <- mean(dat$word_count, na.r=T)
   dat <- dat[dat$word_count > mean.words,]
   
+  # Drop if text_id==NA
+  dat <- dat[!is.na(dat$speech_id),]
+  
   # If chamber provided, filter by chamber
   
   if(is.na(chamber)) {
@@ -76,14 +80,49 @@ sample.n <- function(file, chamber=NA, n=NA){
   # If n=NA, get tox scores for all comments, else take a sample size=n
   
   if(is.na(n)){
-    dat.out <- toxicity.function(dat)
+    dat.out <- dat %>%
+      prsp_stream(text=speech,
+                  text_id = speech_id,
+                  score_model="TOXICITY",
+                  safe_output = T,
+                  verbose=T)
   }
   else{
-  set.seed(235185)
-  dat.out <- toxicity.function(dat[sample(1:nrow(dat), n),])
+  set.seed(num)
+  dat.out <- dat[sample(1:nrow(dat), n),] %>%
+    prsp_stream(text=speech,
+                text_id = speech_id,
+                score_model="TOXICITY",
+                safe_output = T,
+                verbose=T)
   }
-  return(list(num, dat.out$toxicity))
+  return(list(num, dat.out))
   
+}
+
+get.chamber.congress <- function(file, chamber=NA) {
+  
+  # Get the descriptors
+  num <- str_sub(file, -7, -5)
+  desc.file <- paste("descr_", num, ".txt", sep="")
+  desc <- read.delim(file=desc.file, sep="|", skipNul = T, fileEncoding = "ISO-8859-1", quote="")
+  
+  #Get the data and merge in descriptors
+  dat <- read.delim(file=file, sep="|", skipNul = T, fileEncoding = "ISO-8859-1", quote = "")
+  dat$speech_id <- as.character(dat$speech_id)
+  desc$speech_id <- as.character(desc$speech_id)
+  dat <- left_join(dat, desc, by='speech_id')
+  
+  # Drop if text_id==NA
+  dat <- dat[!is.na(dat$speech_id),]
+  
+  # If chamber provided, filter by chamber
+  
+  if(is.na(chamber)) {
+    dat <- dat
+  } else {dat <- dat[dat$chamber==chamber,]}
+  
+  return(dat)
 }
 
 #### Data ####
@@ -96,17 +135,29 @@ file.index <- file.index[grep("speeches_", file.index)]
 setwd("~//Google Drive//UPenn//Coding//R Programs//Personal Research--Penn//Congressional-Record//hein-daily")
 
 
-# Sample Size of 1000 (9:30pm-)
+# Sample Size of 2000 
 
-h.1000 <- sapply(file.index, FUN=function(x) sample.n(x, chamber='H', 1000))
-s.1000 <- sapply(file.index, FUN=function(x) sample.n(x, chamber='S', 1000))
+h97.2k <- sample.n(file.index[1], chamber = 'H', 2000)[[2]]
+h98.2k <- sample.n(file.index[2], chamber = 'H', 2000)[[2]]
+
+h.2000 <- sapply(file.index, FUN=function(x) sample.n(x, chamber='H', 2000))
+s.2000 <- sapply(file.index, FUN=function(x) sample.n(x, chamber='S', 2000))
 
 # House and Senate, Samples of 100
 h.100 <- sapply(file.index, FUN=function(x) sample.n(x, chamber='H', 100))
 s.100 <- sapply(file.index, FUN=function(x) sample.n(x, chamber='S', 100))
 
-means.h100 <- sapply(h.100[2,], FUN=mean)
-sds.h100 <- sapply(h.100[2,], FUN=sd)
+setwd("~/Google Drive/UPenn/Coding/R Programs/Personal Research--Penn/Congressional-Record")
+save(h.100, file=paste(str_sub(year(today()), 3, 4), month(today()), day(today()), 
+                       " House Sample 100", sep = ""))
+save(s.100, file=paste(str_sub(year(today()), 3, 4), month(today()), day(today()), 
+                       " Senate Sample 100", sep = ""))
+load("201129 House Sample 100")
+load("201129 Senate Sample 100")
+
+
+means.h100 <- sapply(h.100[2,], FUN=function(x) mean(x$TOXICITY, na.rm=T))
+sds.h100 <- sapply(h.100[2,], FUN=function(x) sd(x$TOXICITY, na.rm=T))
 tox.time.h100 <- data.frame(time=97:114, mean=means.h100, std=sds.h100)
 
 ggplot(aes(x=time, y=mean), data=tox.time.h100)+
@@ -121,8 +172,8 @@ ggplot(aes(x=time, y=mean), data=tox.time.h100)+
         axis.title = element_text(size=16), 
         axis.text = element_text(size=16))
 
-means.s100 <- sapply(s.100[2,], FUN=mean)
-sds.s100 <- sapply(s.100[2,], FUN=sd)
+means.s100 <- sapply(s.100[2,], FUN=function(x) mean(x$TOXICITY, na.rm=T))
+sds.s100 <- sapply(s.100[2,], FUN=function(x) sd(x$TOXICITY, na.rm=T))
 tox.time.s100 <- data.frame(time=97:114, mean=means.s100, std=sds.s100)
 
 ggplot(aes(x=time, y=mean), data=tox.time.s100)+
@@ -136,6 +187,11 @@ ggplot(aes(x=time, y=mean), data=tox.time.s100)+
         plot.caption = element_text(size=14, hjust = .5), 
         axis.title = element_text(size=16), 
         axis.text = element_text(size=16))
+
+write_csv(tox.time.h100, file=paste(str_sub(year(today()), 3, 4), month(today()), day(today()), 
+                                         " House Means.csv", sep = ""))
+write_csv(tox.time.s100, file=paste(str_sub(year(today()), 3, 4), month(today()), day(today()), 
+                                    " Senate Means.csv", sep = ""))
 
 #### Some Extra Code ####
 # Sample size of 100 (1.75 hours)
@@ -178,6 +234,43 @@ ggplot(aes(x=time, y=mean), data=tox.time)+
         plot.caption = element_text(size=14, hjust = .5), 
         axis.title = element_text(size=16), 
         axis.text = element_text(size=16))
+
+# Working with Tidy Data
+dat <- get.chamber.congress(file.index[2], chamber = 'H')
+
+dat.tidy <- dat %>%
+  select(speech_id, speech) %>%
+  unnest_tokens(word, speech) %>%
+  anti_join(stop_words) %>%
+  count(speech_id, word) %>%
+  cast_dtm(speech_id, word, n)
+
+tidy.LDA <- LDA(dat.tidy, k=3, control= list(alpha=.1, seed = 1234))
+tidy.doc.topics <- tidy(tidy.LDA, matrix='gamma')
+tidy.word.topics <- tidy(tidy.LDA, matrix='beta')
+
+doc.topics <- tidy.doc.topics %>%
+  pivot_wider( id_cols = document, names_from=topic, values_from=gamma, names_prefix="topic")
+
+topic <- apply(doc.topics[,-1], 1, function(x) which(x==max(x)))
+
+word.topics <- tidy.word.topics %>%
+  pivot_wider( id_cols = document, names_from=topic, values_from=beta, names_prefix="topic_")
+
+top10 <- tidy.word.topics %>%
+  group_by(topic) %>%
+  top_n(15, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+# Playing with bootstrapping
+h97.100 <- h.100[[2]]
+test.boot <- lapply(h.100[2,], 
+                    function(y) boot(data=y$TOXICITY, statistic = function(x, i) mean(x[i]), R=10000))
+lapply(test.boot, FUN=plot)
+
+test.ci.boot <- boot.ci(test.boot)
+
 
 
 

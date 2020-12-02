@@ -14,17 +14,21 @@ senate.list <- paste("S", c(97:114), sep="")
 get.network <- function(sheet) {
   # Get the graph and data (first column is names, so exclude it)
   
+  num <- str_sub(sheet, 2)
   dat <- suppressMessages(read_excel("a_sign_of_the_times.xlsx", sheet=sheet, col_names = F))
   dat <- as.matrix(dat)
   graph <- graph_from_adjacency_matrix(dat[,-1], mode=c("upper"))
-  V(graph)$names <- dat[,1]
+  V(graph)$name <- dat[,1]
   dat <- as_tibble(dat)
-  colnames(dat)[1] <- "names"
+  colnames(dat)[1] <- "name"
+  
+  # Include Congress number
+  V(graph)$congress <- num
   
   # Get out Partisanship
   
   dat <- dat %>%
-    mutate(PID=str_sub(names, -2, -2))
+    mutate(PID=str_sub(name, -2, -2))
   
   dat$party <- ifelse(dat$PID=="D", 1,
                          ifelse(dat$PID=="R", 2, 3))
@@ -65,7 +69,7 @@ get.assort <- function(LCC) {
 
 ## Wrap it all up together
 get.it.all <- function(sheets){
-  output<-matrix(NA, ncol=2, nrow=length(sheets))
+  output<-matrix(NA, ncol=4, nrow=length(sheets))
   for(x in 1:length(sheets)){
     network <- get.network(sheets[x])
     LCC <- get.lcc(network)
@@ -73,9 +77,11 @@ get.it.all <- function(sheets){
     assort <- as.numeric(assort)
     output[x, 1] <- assort[1]
     output[x, 2] <- assort[2]
+    output[x, 3] <- length(V(LCC))
+    output[x, 4] <- length(V(LCC))/length(V(network))
   }
   output <- as_tibble(output)
-  colnames(output)<-c("party", "community")
+  colnames(output)<-c("party", "community", "LCC.size", "LCC.perc")
   return(output)
 }
 
@@ -87,6 +93,7 @@ get.plots <- function(sheet){
   V(lcc)$color <- ifelse(V(lcc)$party==1, 'blue', 
                               ifelse(V(lcc)$party==2, 'red', 'green'))
   
+  par(mar = c(.1,.1,1,.1)) 
   plot <- plot(lcc, layout=coords, vertex.color=V(lcc)$color, 
          vertex.label=NA, vertex.size=5, main=sheet)
   
@@ -114,7 +121,7 @@ plot(senate$party, senate$tox)
 ggplot(aes(x=party, y=tox), data=house)+
   geom_point()+
   geom_smooth(method=lm, color='red')+
-  xlab("Party Polarization in the House")+
+  xlab("Party Polarization in the House (Network Assortativity)")+
   ylab("Toxicity of Speech in the House")+
   ggtitle("Party Polarization and Toxicity in the House")+
   theme_bw()
@@ -122,7 +129,7 @@ ggplot(aes(x=party, y=tox), data=house)+
 ggplot(aes(x=party, y=tox), data=senate)+
   geom_point()+
   geom_smooth(method=lm, color='red')+
-  xlab("Party Polarization in the Senate")+
+  xlab("Party Polarization in the Senate (Network Assortativity)")+
   ylab("Toxicity of Speech in the Senate")+
   ggtitle("Party Polarization and Toxicity in the Senate")+
   theme_bw()
@@ -132,6 +139,9 @@ ggplot(aes(x=party, y=tox), data=senate)+
 sapply(house.list, get.plots)
 sapply(senate.list, get.plots)
 
+dat.h.network <- lapply(house.list, function(x) get.lcc(get.network(x)))
+
+do.call(union, dat.h.network)
 ####Things I'm not using ####
 
 
